@@ -263,14 +263,15 @@ impl StaticFileHandler {
                 // If it's Err(io_err), propagate the IO error.
                 match resp_result {
                     Ok(resp) => return Ok(resp), // Return the pre-built 403 response
-                    Err(e) => return Err(e),      // Propagate the IO error (e.g., 404 Not Found)
+                    Err(e) => return Err(e),     // Propagate the IO error (e.g., 404 Not Found)
                 }
             }
         };
 
         // --- 4. Cache Lookup & Computation ---
         // Clone final_path for the function call, so serve_file retains ownership
-        let entry_to_use = match self.get_or_compute_cache_entry(final_path.clone()).await { // Clone here
+        let entry_to_use = match self.get_or_compute_cache_entry(final_path.clone()).await {
+            // Clone here
             Ok(entry) => entry,
             Err(arc_err) => {
                 // Map Arc<io::Error> back to io::Error for the function signature
@@ -314,7 +315,7 @@ impl StaticFileHandler {
         }
         // Otherwise (Ok(None)), proceed to build full response...
 
-        // --- Build and return the full response --- 
+        // --- Build and return the full response ---
         self.build_full_response(
             req.method(),
             &entry_to_use,
@@ -336,7 +337,6 @@ impl StaticFileHandler {
         chosen_encoding: ContentEncoding,
         response_etag: &Option<String>,
     ) -> Result<Response<BoxedBody>, std::io::Error> {
-
         // --- Build Base Response Headers (for 200 OK) ---
         let mut builder = Response::builder()
             .status(StatusCode::OK)
@@ -407,9 +407,13 @@ impl StaticFileHandler {
                                 Ok(builder.body(full(compressed_bytes)).unwrap())
                             }
                             Err(e) => {
-                                error!("Failed to compress cached bytes: {}. Serving uncompressed.", e);
+                                error!(
+                                    "Failed to compress cached bytes: {}. Serving uncompressed.",
+                                    e
+                                );
                                 // Fallback: serve uncompressed from cache
-                                builder = builder.header(header::CONTENT_LENGTH, metadata.file_size);
+                                builder =
+                                    builder.header(header::CONTENT_LENGTH, metadata.file_size);
                                 if let Some(resp_etag) = Self::get_response_etag(
                                     metadata.etag.as_deref(),
                                     ContentEncoding::Identity,
@@ -423,7 +427,7 @@ impl StaticFileHandler {
                 }
             }
             CachedEntry::MetadataOnly(_) => {
-                // --- Serve by Streaming from Disk --- 
+                // --- Serve by Streaming from Disk ---
                 debug!(path = ?final_path, encoding = ?chosen_encoding, "Serving MetadataOnly entry, preparing to stream.");
                 match File::open(final_path).await {
                     Ok(file) => {
@@ -435,7 +439,8 @@ impl StaticFileHandler {
                                 if let Some(resp_etag) = response_etag {
                                     builder = builder.header(header::ETAG, resp_etag.clone());
                                 }
-                                let encoder = BrotliEncoder::with_quality(buf_reader, Level::Precise(4));
+                                let encoder =
+                                    BrotliEncoder::with_quality(buf_reader, Level::Precise(4));
                                 let stream_body = Self::create_stream_body(encoder);
                                 Ok(builder.body(BodyExt::boxed(stream_body)).unwrap())
                             }
@@ -455,13 +460,15 @@ impl StaticFileHandler {
                                 if let Some(resp_etag) = response_etag {
                                     builder = builder.header(header::ETAG, resp_etag.clone());
                                 }
-                                let encoder = ZstdEncoder::with_quality(buf_reader, Level::Precise(17));
+                                let encoder =
+                                    ZstdEncoder::with_quality(buf_reader, Level::Precise(17));
                                 let stream_body = Self::create_stream_body(encoder);
                                 Ok(builder.body(BodyExt::boxed(stream_body)).unwrap())
                             }
                             ContentEncoding::Identity => {
                                 debug!("Applying Identity encoding (no compression).");
-                                builder = builder.header(header::CONTENT_LENGTH, metadata.file_size);
+                                builder =
+                                    builder.header(header::CONTENT_LENGTH, metadata.file_size);
                                 if let Some(resp_etag) = response_etag {
                                     builder = builder.header(header::ETAG, resp_etag.clone());
                                 }
@@ -471,10 +478,14 @@ impl StaticFileHandler {
                         }
                     }
                     Err(e) => {
-                        error!("Failed to open file {} for streaming: {}", final_path.display(), e);
+                        error!(
+                            "Failed to open file {} for streaming: {}",
+                            final_path.display(),
+                            e
+                        );
                         // If opening the file for streaming fails, invalidate cache
                         // Need cache_key - can reconstruct from final_path
-                        let cache_key = final_path.clone(); 
+                        let cache_key = final_path.clone();
                         self.entry_cache.invalidate(&cache_key).await;
                         Err(e) // Propagate the open error
                     }
@@ -491,7 +502,8 @@ impl StaticFileHandler {
     async fn resolve_physical_path(
         &self,
         request_path: &str,
-    ) -> Result<PathBuf, Result<Response<BoxedBody>, io::Error>> { // Note the nested Result
+    ) -> Result<PathBuf, Result<Response<BoxedBody>, io::Error>> {
+        // Note the nested Result
         let requested_file = request_path.trim_start_matches('/');
         let safe_path = self.www_root.join(requested_file);
 
@@ -542,7 +554,8 @@ impl StaticFileHandler {
     async fn get_or_compute_cache_entry(
         &self,
         final_path: PathBuf, // Takes ownership of the path for the key
-    ) -> Result<CachedEntry, Arc<io::Error>> { // Matches moka's error type
+    ) -> Result<CachedEntry, Arc<io::Error>> {
+        // Matches moka's error type
         self.entry_cache.try_get_with(final_path.clone(), async move { // Clone final_path for closure
                 // --- Cache Miss: compute metadata and potentially content ---
                 let final_meta = tokio::fs::metadata(&final_path).await?;
@@ -662,9 +675,9 @@ impl StaticFileHandler {
     /// or None if the request should be handled as a full response.
     async fn handle_range_request(
         &self,
-        req: &Request<Incoming>, // Pass request by reference
-        entry_to_use: &CachedEntry, // Pass cache entry by reference
-        final_path: &PathBuf, // Pass final path by reference
+        req: &Request<Incoming>,        // Pass request by reference
+        entry_to_use: &CachedEntry,     // Pass cache entry by reference
+        final_path: &PathBuf,           // Pass final path by reference
         metadata: &Arc<CachedMetadata>, // Pass metadata by reference
     ) -> Result<Option<Response<BoxedBody>>, std::io::Error> {
         // --- Parse Range Header ---
@@ -699,7 +712,12 @@ impl StaticFileHandler {
                 // --- Handle Valid Range Request (Serve 206 Partial Content) ---
                 let start = *range.start();
                 let end = *range.end(); // Inclusive end
-                debug!(start, end, total = metadata.file_size, "Valid range requested");
+                debug!(
+                    start,
+                    end,
+                    total = metadata.file_size,
+                    "Valid range requested"
+                );
 
                 // --- Build 206 Response ---
                 let range_content_length = end - start + 1;
@@ -735,7 +753,12 @@ impl StaticFileHandler {
                 match entry_to_use {
                     CachedEntry::FullContent(_, content_bytes) => {
                         // Serve range from Memory Cache (zero-copy slice)
-                        debug!(start, end, cache_len = content_bytes.len(), "Serving range from FullContent cache");
+                        debug!(
+                            start,
+                            end,
+                            cache_len = content_bytes.len(),
+                            "Serving range from FullContent cache"
+                        );
                         // Ensure range is within bounds (should be guaranteed by parse_range_header)
                         if start < content_bytes.len() as u64 {
                             let safe_end = (end + 1).min(content_bytes.len() as u64); // +1 for exclusive bound
@@ -757,7 +780,8 @@ impl StaticFileHandler {
                     CachedEntry::MetadataOnly(_) => {
                         // Serve range by Streaming from Disk with seek + limit
                         debug!(path = ?final_path, start, end, "Serving range by streaming MetadataOnly entry");
-                        match File::open(final_path).await { // Use the passed final_path
+                        match File::open(final_path).await {
+                            // Use the passed final_path
                             Ok(mut file) => {
                                 file.seek(SeekFrom::Start(start)).await?; // Seek to start
                                 // Limit the reader to the range length

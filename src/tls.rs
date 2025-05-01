@@ -15,7 +15,7 @@ use anyhow::{Context, Result, bail};
 use futures::stream::StreamExt;
 use rustls_acme::{AcmeConfig, ResolvesServerCertAcme, caches::DirCache};
 use std::{path::PathBuf, sync::Arc, time::Duration};
-use tokio::{fs, sync::Mutex};
+use tokio::{fs, sync::Mutex, time::sleep};
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, error, info};
 
@@ -93,36 +93,44 @@ async fn setup_acme_tls(
     // Spawn ACME Background Task
     let acme_runner_state = Arc::clone(&state_arc_mutex);
     tokio::spawn(async move {
+        let mut is_first_poll = true; // Flag for the initial poll
         loop {
             info!("ACME background task: Acquiring state lock...");
             let mut guard = acme_runner_state.lock().await;
             info!("ACME background task: Lock acquired. Checking state machine...");
 
-            // Declare and initialize check_interval inside the loop
-            let mut check_interval = Duration::from_secs(60 * 60);
+            let poll_result = guard.next().await;
 
-            match guard.next().await {
-                Some(Ok(event)) => {
-                    debug!("ACME background task: Event received: {:?}", event);
-                    // Potentially adjust check_interval based on the event if needed
-                    // e.g., if a challenge needs immediate attention or renewal is close.
+            let sleep_duration = match poll_result {
+                Some(Ok(_)) => {
+                    debug!("ACME background task: Poll successful.");
+                    if is_first_poll {
+                        Duration::from_secs(10) // Short sleep after first successful poll
+                    } else {
+                        Duration::from_secs(60 * 60) // Long sleep on subsequent successful polls
+                    }
                 }
                 Some(Err(err)) => {
-                    error!("ACME background task: Error processing state: {:?}", err);
-                    // Consider shorter sleep on persistent errors
-                    check_interval = Duration::from_secs(5 * 60);
+                    error!("ACME background task: Error polling state: {:?}", err);
+                    Duration::from_secs(60) // Medium sleep on error (retry after 1 min)
                 }
                 None => {
                     error!("ACME background task: State stream ended unexpectedly. Stopping task.");
-                    break;
+                    drop(guard); // Release lock before breaking
+                    break; // Exit the loop
                 }
+            };
+
+            // Mark first poll as done *after* calculating its sleep duration
+            if is_first_poll {
+                is_first_poll = false;
             }
 
             info!("ACME background task: Releasing state lock.");
-            drop(guard); // Explicit drop for clarity before sleep
+            drop(guard); // Release lock before sleep
 
-            info!("ACME background task: Sleeping for {:?}...", check_interval);
-            tokio::time::sleep(check_interval).await; // Sleep *after* processing
+            info!("ACME background task: Sleeping for {:?}...", sleep_duration);
+            sleep(sleep_duration).await;
         }
         info!("ACME background task: Exited loop.");
     });

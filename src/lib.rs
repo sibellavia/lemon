@@ -1,9 +1,9 @@
 pub mod cli;
 pub mod common;
 pub mod config;
+pub mod connection;
 pub mod handlers;
 pub mod logging;
-pub mod connection;
 pub mod server;
 pub mod shutdown;
 pub mod tls;

@@ -1009,10 +1009,7 @@ async fn test_server_header_present() -> Result<()> {
     let response = client.get(&url).send().await?;
 
     assert_eq!(response.status(), reqwest::StatusCode::OK);
-    assert_eq!(
-        response.headers().get("server").unwrap().to_str()?,
-        "Lemon"
-    );
+    assert_eq!(response.headers().get("server").unwrap().to_str()?, "Lemon");
 
     shutdown_test_server(server).await?;
     Ok(())
@@ -1041,19 +1038,33 @@ async fn test_range_request_specific() -> Result<()> {
         response
             .headers()
             .get(reqwest::header::CONTENT_RANGE)
-            .unwrap().to_str()?,
+            .unwrap()
+            .to_str()?,
         "bytes 100-199/2000"
     );
     assert_eq!(
-        response.headers().get(reqwest::header::CONTENT_LENGTH).unwrap().to_str()?,
+        response
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .unwrap()
+            .to_str()?,
         "100"
     );
     assert_eq!(
-        response.headers().get(reqwest::header::ACCEPT_RANGES).unwrap().to_str()?,
+        response
+            .headers()
+            .get(reqwest::header::ACCEPT_RANGES)
+            .unwrap()
+            .to_str()?,
         "bytes"
     );
     // Should not be compressed
-    assert!(response.headers().get(reqwest::header::CONTENT_ENCODING).is_none());
+    assert!(
+        response
+            .headers()
+            .get(reqwest::header::CONTENT_ENCODING)
+            .is_none()
+    );
 
     let body_bytes = response.bytes().await?;
     assert_eq!(body_bytes.len(), 100);
@@ -1079,15 +1090,24 @@ async fn test_range_request_open_start() -> Result<()> {
         response
             .headers()
             .get(reqwest::header::CONTENT_RANGE)
-            .unwrap().to_str()?,
+            .unwrap()
+            .to_str()?,
         "bytes 450-499/500"
     );
     assert_eq!(
-        response.headers().get(reqwest::header::CONTENT_LENGTH).unwrap().to_str()?,
+        response
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .unwrap()
+            .to_str()?,
         "50" // 499 - 450 + 1
     );
     assert_eq!(
-        response.headers().get(reqwest::header::ACCEPT_RANGES).unwrap().to_str()?,
+        response
+            .headers()
+            .get(reqwest::header::ACCEPT_RANGES)
+            .unwrap()
+            .to_str()?,
         "bytes"
     );
 
@@ -1116,15 +1136,24 @@ async fn test_range_request_suffix() -> Result<()> {
         response
             .headers()
             .get(reqwest::header::CONTENT_RANGE)
-            .unwrap().to_str()?,
+            .unwrap()
+            .to_str()?,
         format!("bytes {}-1023/1024", expected_start)
     );
     assert_eq!(
-        response.headers().get(reqwest::header::CONTENT_LENGTH).unwrap().to_str()?,
+        response
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .unwrap()
+            .to_str()?,
         "100"
     );
     assert_eq!(
-        response.headers().get(reqwest::header::ACCEPT_RANGES).unwrap().to_str()?,
+        response
+            .headers()
+            .get(reqwest::header::ACCEPT_RANGES)
+            .unwrap()
+            .to_str()?,
         "bytes"
     );
 
@@ -1155,7 +1184,8 @@ async fn test_range_request_unsatisfiable() -> Result<()> {
         response
             .headers()
             .get(reqwest::header::CONTENT_RANGE)
-            .unwrap().to_str()?,
+            .unwrap()
+            .to_str()?,
         format!("bytes */{}", content.len())
     );
 
@@ -1183,9 +1213,18 @@ async fn test_range_request_invalid_format_fallback() -> Result<()> {
     for range in ranges {
         let response = client.get(&url).header("Range", range).send().await?;
         assert_eq!(response.status(), reqwest::StatusCode::OK);
-        assert!(response.headers().get(reqwest::header::CONTENT_RANGE).is_none());
+        assert!(
+            response
+                .headers()
+                .get(reqwest::header::CONTENT_RANGE)
+                .is_none()
+        );
         assert_eq!(
-            response.headers().get(reqwest::header::CONTENT_LENGTH).unwrap().to_str()?,
+            response
+                .headers()
+                .get(reqwest::header::CONTENT_LENGTH)
+                .unwrap()
+                .to_str()?,
             content.len().to_string()
         );
         assert_eq!(response.text().await?, std::str::from_utf8(content)?);
@@ -1211,15 +1250,24 @@ async fn test_range_request_head() -> Result<()> {
         response
             .headers()
             .get(reqwest::header::CONTENT_RANGE)
-            .unwrap().to_str()?,
+            .unwrap()
+            .to_str()?,
         "bytes 50-149/1000"
     );
     assert_eq!(
-        response.headers().get(reqwest::header::CONTENT_LENGTH).unwrap().to_str()?,
+        response
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .unwrap()
+            .to_str()?,
         "100"
     );
     assert_eq!(
-        response.headers().get(reqwest::header::ACCEPT_RANGES).unwrap().to_str()?,
+        response
+            .headers()
+            .get(reqwest::header::ACCEPT_RANGES)
+            .unwrap()
+            .to_str()?,
         "bytes"
     );
     let body = response.text().await?;
@@ -1251,11 +1299,16 @@ async fn test_range_request_from_cache() -> Result<()> {
         response
             .headers()
             .get(reqwest::header::CONTENT_RANGE)
-            .unwrap().to_str()?,
+            .unwrap()
+            .to_str()?,
         "bytes 10-29/512"
     );
     assert_eq!(
-        response.headers().get(reqwest::header::CONTENT_LENGTH).unwrap().to_str()?,
+        response
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .unwrap()
+            .to_str()?,
         "20"
     );
 
@@ -1295,11 +1348,25 @@ async fn test_range_request_conditional_304() -> Result<()> {
 
     // Expect 304 Not Modified, ignoring the Range header
     assert_eq!(response.status(), reqwest::StatusCode::NOT_MODIFIED);
-    assert!(response.headers().get(reqwest::header::CONTENT_RANGE).is_none());
-    assert!(response.headers().get(reqwest::header::CONTENT_LENGTH).is_none());
+    assert!(
+        response
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .is_none()
+    );
+    assert!(
+        response
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .is_none()
+    );
     // 304 should still advertise range support
     assert_eq!(
-        response.headers().get(reqwest::header::ACCEPT_RANGES).unwrap().to_str()?,
+        response
+            .headers()
+            .get(reqwest::header::ACCEPT_RANGES)
+            .unwrap()
+            .to_str()?,
         "bytes"
     );
     // The original ETag should be present
