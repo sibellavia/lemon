@@ -1,0 +1,115 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+    tags: [ "v*.*.*", "v*" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: lemon
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Remove local Cargo config
+        run: rm -f .cargo/config.toml
+
+      - name: Set up Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Run tests
+        run: cargo test --verbose
+
+  build_release:
+    if: startsWith(github.ref, 'refs/tags/')
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            platform: linux
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            platform: macos-x64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          target: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} --bin ${{ env.BINARY_NAME }}
+
+      - name: Copy binary & checksum
+        run: |
+          BIN=target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}
+          ASSET_NAME="${{ env.BINARY_NAME }}-${{ github.ref_name }}-${{ matrix.platform }}"
+          cp "$BIN" "./${ASSET_NAME}"
+          # cross-platform sha256
+          if command -v sha256sum &>/dev/null; then
+            sha256sum "${ASSET_NAME}" > "${ASSET_NAME}.sha256"
+          else
+            shasum -a 256 "${ASSET_NAME}" > "${ASSET_NAME}.sha256"
+          fi
+          echo "ASSET_NAME=${ASSET_NAME}" >> $GITHUB_ENV
+          echo "CHECKSUM_NAME=${ASSET_NAME}.sha256" >> $GITHUB_ENV
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ matrix.platform }}
+          path: |
+            ${{ env.ASSET_NAME }}
+            ${{ env.CHECKSUM_NAME }}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build_release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Create Draft GitHub Release & Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: release-assets/*/*
