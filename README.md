@@ -2,37 +2,22 @@
 
 `lemon` is a general-purpose web server with a clear, human-readable configuration. It effortlessly supports both HTTP/1.1 and HTTP/2, automated HTTPS provisioning, and versatile request handling.
 
-## Architecture
-
-`lemon` employs a "Shared Acceptor + Tokio Runtime Pool" architecture designed for high concurrency and efficient resource utilization within a single process.
-
-*   **Dedicated Acceptor Thread:** A single, dedicated OS thread (`lemon-acceptor`) runs a lightweight, single-threaded Tokio runtime. Its sole responsibility is to listen on all configured ports and efficiently accept incoming TCP connections using non-blocking I/O.
-*   **Tokio Worker Pool:** The main multi-threaded Tokio runtime forms a worker pool. This pool handles the computationally intensive tasks.
-*   **Handoff:** When the acceptor thread accepts a new connection (`TcpStream`), it immediately spawns a new asynchronous task onto the main Tokio worker pool. This task receives the connection along with its necessary context (like the appropriate handler, TLS configuration, etc.).
-*   **Connection Processing:** Tasks running on the worker pool handle the entire connection lifecycle:
-    *   Performing the TLS handshake (if required) using Rustls.
-    *   Parsing and processing HTTP requests using Hyper.
-    *   Executing the logic defined by the configured handler (e.g., reading a file, proxying a request).
-    *   Sending the response back to the client.
-
-This separation isolates the performance-critical `accept()` operation from request processing, allowing the worker threads to focus entirely on handling application logic and TLS, leading to improved throughput under load compared to models where workers might also handle accept calls. The handoff via `tokio::spawn` leverages Tokio's efficient task scheduling.
-
 ## Features
 
-*   **LemonConfig:** Uses a clear, human-readable `lemon.toml` file for defining server instances and their behavior.
-*   **HTTP/1.1 and HTTP/2 Support:** Automatically negotiates HTTP/1.1 or HTTP/2 based on client capabilities (via ALPN for HTTPS connections).
-*   **Automatic HTTPS (ACME):** Built-in integration with Let's Encrypt via `rustls-acme` for automatic TLS certificate acquisition and renewal.
-*   **Manual TLS:** Supports configuration using manually provisioned TLS certificate and key files.
+*   **lemonConfig:** lemon uses a clear, human-readable `lemon.toml` file for defining server instances and their behavior.
+*   **HTTP/1.1 and HTTP/2 Support:** lemon automatically negotiates HTTP/1.1 or HTTP/2 based on client capabilities (via ALPN for HTTPS connections).
+*   **Automatic HTTPS (ACME):** built-in integration with Let's Encrypt via `rustls-acme` for automatic TLS certificate acquisition and renewal.
+*   **Manual TLS:** supports configuration using manually provisioned TLS certificate and key files.
 *   **Handlers:**
-    *   **Static File Serving:** Efficiently serves static content from a specified directory.
-    *   **Reverse Proxy:** Forwards requests to upstream backend services.
-    *   **HTTPS Redirect:** Automatically redirects HTTP requests to their HTTPS equivalent.
-    *   **Health Check:** Provides a simple `GET /` endpoint returning `200 OK`.
-*   **HTTP Range Requests:** Supports partial content requests (`Range: bytes=...`) for the static file handler, enabling efficient serving of large files and resumable downloads.
-*   **Automatic Content Compression:** Compresses eligible responses using Brotli, Zstd, or Gzip based on client `Accept-Encoding` headers, prioritizing modern, efficient algorithms. Includes intelligent ETag modification for compressed content.
-*   **Static Content Caching:** In-memory caching for frequently accessed static files to reduce disk I/O.
-*   **Automatic Security Headers:** Adds important security headers like `Strict-Transport-Security`, `X-Frame-Options`, and `X-Content-Type-Options` by default, with configuration options.
-*   **Configurable Logging:** Flexible logging powered by `tracing`, supporting different levels, formats (text, JSON), and outputs (stdout, file).
+    *   **Static File Serving:** efficiently serves static content from a specified directory.
+    *   **Reverse Proxy:** forwards requests to upstream backend services.
+    *   **HTTPS Redirect:** automatically redirects HTTP requests to their HTTPS equivalent.
+    *   **Health Check:** provides a simple `GET /` endpoint returning `200 OK`.
+*   **HTTP Range Requests:** supports partial content requests (`Range: bytes=...`) for the static file handler, enabling efficient serving of large files and resumable downloads.
+*   **Automatic Content Compression:** lemon compresses eligible responses using Brotli, Zstd, or Gzip based on client `Accept-Encoding` headers, prioritizing modern, efficient algorithms. Includes intelligent ETag modification for compressed content.
+*   **Static Content Caching:** in-memory caching for frequently accessed static files is present to reduce disk I/O.
+*   **Automatic Security Headers:** lemon adds important security headers like `Strict-Transport-Security`, `X-Frame-Options`, and `X-Content-Type-Options` by default, with configuration options.
+*   **Configurable Logging:** flexible logging powered by `tracing`, supporting different levels, formats (text, JSON), and outputs (stdout, file).
 
 ## Getting Started
 
@@ -48,42 +33,54 @@ cd lemon
 cargo build --release
 ```
 
-### Running
+The compiled binary will be located at `./target/release/lemon`.
 
-1.  Create a `lemon.toml` configuration file (see Section 5).
-2.  Run the compiled binary:
+### Running lemon
 
+`lemon` can be controlled via command-line arguments. Here's how to get started:
+
+1.  **Create a lemonConfig:**
+    `lemon` requires a configuration file (`lemonConfig`), typically named `lemon.toml`, to define server behavior. You can create a starter file with examples:
     ```bash
+    ./target/release/lemon create-config
+    ```
+    This creates `lemon.toml` in the current directory. Edit this file according to your needs (see the [LemonConfig](#lemonconfig-lemontoml) section below). Use `--force` to overwrite an existing file.
+
+2.  **Validate the configuration (Optional):**
+    Before running, you can check if your configuration file is valid:
+    ```bash
+    ./target/release/lemon validate
+    # Or specify a different path:
+    ./target/release/lemon validate --config path/to/your/config.toml
+    ```
+
+3.  **Run `lemon`:**
+    Once your `lemon.toml` is ready, start the server:
+    ```bash
+    ./target/release/lemon run
+    # 'run' is the default command, so you can also just use:
     ./target/release/lemon
     ```
-
-The server will start based on the configuration in `lemon.toml`. Logs will be printed to standard output.
-
-### Command-Line Interface (CLI)
-
-The `lemon` executable provides several commands:
-
-*   **`lemon run` (or simply `lemon`)**: This is the default command. It reads the LemonConfig (defaulting to `lemon.toml` in the current directory) and starts the server instance(s) defined within it.
-*   **`lemon validate`**: Checks the syntax and validates the configuration file according to `lemon`'s rules. It reports whether the configuration is valid or lists any errors found.
-    ```bash
-    lemon validate 
-    lemon validate --config path/to/your/config.toml
-    ```
-*   **`lemon create-config`**: Creates a basic `lemon.toml` file in the current directory with commented-out examples for common server types (HTTP static, ACME HTTPS, Reverse Proxy).
-    ```bash
-    lemon create-config
-    ```
-    *   Use the `--force` flag to overwrite an existing `lemon.toml` file:
-        ```bash
-        lemon create-config --force
-        ```
+    The server will start based on the configuration found in `lemon.toml` (or the file specified with `--config`). Logs will be printed to standard output by default.
 
 **Global Options:**
 
-*   **`--config <FILE>` (or `-c <FILE>`)**: Specifies the path to the configuration file to use. This flag can be used with any command (e.g., `lemon --config myconfig.toml run`, `lemon -c myconfig.toml validate`).
-    *   **Default:** `lemon.toml`
+*   **`--config <FILE>` (or `-c <FILE>`)**: Specifies the path to the configuration file to use instead of the default `lemon.toml`. This flag can be used with `run` and `validate`.
+    *   Example: `./target/release/lemon --config /etc/lemon/prod.toml`
 
-## LemonConfig (`lemon.toml`)
+## Architecture
+
+`lemon` employs a *Shared Acceptor + Tokio Runtime Pool* architecture designed for high concurrency and efficient resource utilization within a single process.
+
+At its core, a single, dedicated OS thread (`lemon-acceptor`) runs a lightweight, single-threaded Tokio runtime. Its sole responsibility is to listen on all configured ports and efficiently accept incoming TCP connections using non-blocking I/O. Concurrently, the main multi-threaded Tokio runtime forms a worker pool dedicated to handling the computationally intensive tasks.
+
+When the acceptor thread accepts a new connection (`TcpStream`), it immediately performs a handoff by spawning a new asynchronous task onto the main Tokio worker pool. This new task receives the connection along with its necessary context, such as the appropriate handler and TLS configuration.
+
+Tasks running on the worker pool then manage the entire connection lifecycle. This includes performing the TLS handshake (if required) using Rustls, parsing and processing HTTP requests via Hyper, executing the logic defined by the configured handler (like serving a static file or proxying a request), and finally sending the response back to the client.
+
+This architectural separation isolates the performance-critical `accept()` operation from the complexities of request processing. It allows the worker threads to focus entirely on handling application logic and TLS operations, leading to improved throughput under load compared to models where workers might also handle accept calls. The handoff mechanism leverages Tokio's efficient task scheduling via `tokio::spawn`.
+
+## lemonConfig (`lemon.toml`)
 
 `lemon` uses a TOML file named `lemon.toml` located in the working directory where the server runs. This file defines one or more server instances, each with its own listening address, optional TLS settings, and request handler.
 
@@ -94,7 +91,7 @@ The `lemon` executable provides several commands:
 3.  **Simple Cases = Simple Config:** basic HTTP/S servers require minimal boilerplate.
 4.  **Discoverability:** structure and naming should guide the user.
 
-### 5.1. Overall Structure
+### Overall Structure
 
 The configuration file consists of one or more `[server.<name>]` tables. Each table defines a distinct server instance. The `<name>` (e.g., `main_site`, `api_proxy`) is chosen by the user and serves as an identifier in logs.
 
@@ -272,133 +269,4 @@ security = {
 *   **`hsts_include_subdomains`** (Optional, Boolean): If `true`, adds the `includeSubDomains` directive to the HSTS header. Only added for HTTPS servers.
     *   **Default:** `true`
 *   **`hsts_preload`** (Optional, Boolean): If `true`, adds the `preload` directive to the HSTS header. Only added for HTTPS servers. Use with caution and ensure your site meets preload list requirements.
-    *   **Default:** `false`
-*   **`frame_options`** (Optional, String): Specifies the value for the `X-Frame-Options` header.
-    *   **Allowed Values:** `"DENY"`, `"SAMEORIGIN"`, `"NONE"` (case-insensitive during validation, but canonical values are recommended). `"NONE"` disables the header.
-    *   **Default:** `"DENY"` (implicitly, if `add_default_headers` is `true` and `frame_options` is omitted).
-
-**Planned handler types:**
-
-*(more handlers like API gateways, WebSocket proxies, etc., will be added by extending this structure).*
-
-### Configuration Examples
-
-#### Simple HTTP Static Server
-
-```toml
-[server.my_http_site]
-listen_addr = "0.0.0.0:8080"
-handler = { type = "static", www_root = "./public" }
-```
-
-#### Simple ACME HTTPS Static Server
-
-```toml
-[server.my_https_site]
-listen_addr = "0.0.0.0:443"
-# cache_dir will default to ./acme-cache, staging defaults to false
-tls = { type = "acme", domains = ["mydomain.com"], contact = "mailto:me@mydomain.com" }
-handler = { type = "static", www_root = "./public" }
-```
-
-#### ACME Server with Explicit Cache & Staging
-
-```toml
-[server.my_other_https_site]
-listen_addr = "[::]:443" # IPv6 example
-tls = { type = "acme", domains = ["other.net"], contact = "mailto:admin@other.net", cache_dir = "/var/lib/lemon/acme", staging = true }
-handler = { type = "static", www_root = "/srv/www/other" }
-```
-
-#### Static Server with Custom Content Cache Limits
-
-```toml
-[server.cached_static]
-listen_addr = "0.0.0.0:8081"
-handler = {
-  type = "static",
-  www_root = "./public_assets",
-  # Cache files up to 2MB each
-  content_cache_max_file_bytes = 2097152,
-  # Allow total cache size up to 512MB
-  content_cache_max_total_bytes = 536870912
-}
-```
-
-## Compression
-
-`lemon` automatically handles HTTP response compression to reduce bandwidth usage and improve load times. Currently, this feature is primarily implemented within the `static` file handler.
-
-*   **Content Negotiation:** Compression is applied based on the client's `Accept-Encoding` request header.
-*   **Supported Algorithms:** `lemon` supports and prioritizes the following encodings:
-    1.  Brotli (`br`) - Quality level 4 (good balance of speed and ratio)
-    2.  Zstd (`zstd`) - Quality level 17 (high compression)
-    3.  Gzip (`gzip`)
-*   **Skipped Compression:** Compression is intelligently skipped when:
-    *   The client does not support any of the above encodings.
-    *   The content's MIME type is typically already compressed or not suitable for compression (e.g., `image/jpeg`, `image/png`, `video/mp4`, `application/pdf`, `application/zip`, font types).
-    *   The content size is very small (< 256 bytes), where compression overhead might outweigh benefits.
-*   **Header Handling:**
-    *   The `Content-Encoding` header is added to indicate the chosen compression method (e.g., `Content-Encoding: br`).
-    *   The `Vary: Accept-Encoding` header is added to responses for compressible content types, signaling to caches that the response may differ based on the client's accepted encodings.
-    *   The `Content-Length` header is omitted for compressed responses as the size is determined dynamically during streaming.
-*   **ETag Modification:** When compression is applied, the `ETag` header value is modified with a suffix (e.g., `"base-etag-br"`, `"base-etag-zst"`, `"base-etag-gz"`) to ensure cache validators correctly distinguish between different encodings of the same resource.
-*   **Range Requests Interaction:** HTTP Range requests (`Range: bytes=...`) requesting partial content are served uncompressed (identity encoding) even if the content type is normally compressible and the client accepts compression. This ensures compatibility and simplifies partial content delivery.
-
-## Logging
-
-`lemon` uses the `tracing` library for logging. You can configure logging behavior through the optional `[logging]` section in your `lemon.toml` file or via the `RUST_LOG` environment variable.
-
-**Configuration Precedence:**
-
-1.  **`RUST_LOG` Environment Variable:** If set, this overrides any level settings in the config file. It uses the standard `tracing_subscriber::EnvFilter` format (e.g., `RUST_LOG=info`, `RUST_LOG=lemon=debug,hyper=info`).
-2.  **`[logging]` section in `lemon.toml`:** Defines level, format, and output if `RUST_LOG` is not set.
-3.  **Default:** If neither `RUST_LOG` nor `[logging]` is specified, logs default to `INFO` level, `text` format, and `stdout` output.
-
-**`[logging]` Section Options:**
-
-```toml
-[logging]
-# Log level. Overridden by RUST_LOG env var if set.
-# Valid levels: "trace", "debug", "info", "warn", "error"
-# Default: "info"
-level = "debug"
-
-# Log output format.
-# Valid formats: "text", "json"
-# Default: "text"
-format = "text"
-
-# Log output destination.
-# Default: { type = "stdout" }
-# output = { type = "stdout" }
-# output = { type = "file", path = "/var/log/lemon/lemon.log" }
-output = { type = "file", path = "./lemon.log" }
-```
-
-*   **`level`** (Optional, String): Sets the minimum log level. Defaults to `"info"`. Ignored if `RUST_LOG` is set.
-*   **`format`** (Optional, String): Sets the log output format. `"text"` is human-readable, while `"json"` produces structured JSON logs. Defaults to `"text"`.
-*   **`output`** (Optional, Table): Determines where logs are written.
-    *   **`type = "stdout"`**: Logs to the standard output (console). This is the default.
-    *   **`type = "file"`**: Logs to a file.
-        *   **`path`** (Required, String): The path to the log file. `lemon` uses daily rotation for log files created with this option.
-
-## Security Headers
-
-`lemon` automatically adds several important security-related HTTP headers to responses to help protect against common web vulnerabilities. This is done by default to promote secure configurations.
-
-*   **Mechanism:** Headers are added via an internal middleware wrapper that processes the response generated by the configured handler (`static`, `reverse_proxy`, etc.) before it's sent to the client.
-*   **Non-Overwriting:** The wrapper uses `HeaderMap::entry().or_insert()` logic. This means if your backend application (in `reverse_proxy` mode) or a future custom handler sets one of these headers itself, `lemon` will **not** overwrite the value provided by the handler.
-*   **Performance:** Header names and common values (`nosniff`, `DENY`, `SAMEORIGIN`) are defined as static constants to avoid per-request allocations. The `Strict-Transport-Security` header value is pre-computed based on the configuration when the server starts.
-
-**Default Headers Added:**
-
-*   **`X-Content-Type-Options: nosniff`**: Prevents browsers from MIME-sniffing the content-type away from the declared one.
-*   **`X-Frame-Options: DENY`**: Prevents the site from being embedded within an `<iframe>` or `<object>`, mitigating clickjacking attacks. (Can be changed to `SAMEORIGIN` or disabled via configuration).
-*   **`Strict-Transport-Security` (HSTS)**: For **HTTPS servers only**. Tells browsers to always connect using HTTPS for the configured duration. The exact value depends on the configuration.
-
-**Configuration:**
-
-This feature is controlled by the optional `[server.<name>.security]` section in your `lemon.toml` file. See Section 5.2 under `security` for details on the available options (`add_default_headers`, `hsts_max_age`, `hsts_include_subdomains`, `hsts_preload`, `frame_options`) and their defaults.
-
-By default (`add_default_headers = true`), all the headers listed above are added (with HSTS only applying to HTTPS servers).
+    *   **Default:** `
