@@ -2,6 +2,8 @@
 
 `lemon` is a general-purpose web server with a clear, human-readable configuration. It effortlessly supports both HTTP/1.1 and HTTP/2, automated HTTPS provisioning, and versatile request handling.
 
+    Note: lemon is under active development, not intended to be production-ready.
+
 ## Features
 
 *   **lemonConfig:** lemon uses a clear, human-readable `lemon.toml` file for defining server instances and their behavior.
