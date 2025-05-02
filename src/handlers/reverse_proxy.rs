@@ -44,13 +44,28 @@ impl ReverseProxyHandler {
         // Prepare the rustls client config with root certificates.
         // Use rustls_native_certs to load platform's native root certificates.
         let mut root_cert_store = rustls::RootCertStore::empty();
-        for cert in rustls_native_certs::load_native_certs()
-            .map_err(|e| anyhow!(e).context("Failed to load native root certificates"))?
-        {
-            // Errors loading individual certs are logged but not fatal
+        // load_native_certs() returns a CertificateResult struct.
+        let cert_result = rustls_native_certs::load_native_certs();
+
+        // Log any errors encountered during loading.
+        for err in &cert_result.errors {
+            error!("Error loading native root certificate: {}", err);
+        }
+
+        // Add successfully loaded certificates to the store.
+        for cert in cert_result.certs {
+            // Errors adding individual certs are logged but not fatal.
             if let Err(e) = root_cert_store.add(cert) {
-                error!("Failed to add native root certificate: {}", e);
+                error!("Failed to add native root certificate to store: {}", e);
             }
+        }
+
+        // Log if no certificates were loaded, which might be unexpected.
+        if root_cert_store.is_empty() {
+            error!("No native root certificates could be loaded.");
+            // Depending on requirements, you might want to return an error here
+            // if a root store is essential for the proxy to function.
+            // return Err(anyhow!("No native root certificates could be loaded"));
         }
 
         let tls_config = rustls::ClientConfig::builder()
