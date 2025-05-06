@@ -72,6 +72,15 @@ The compiled binary will be located at `./target/release/lemon`.
     ```
     This command automates the creation of a `lemon` system user, copies the binary, sets up necessary directories, installs a `systemd` unit file, and starts the service. See the dedicated section "[Running `lemon` as a Systemd Service (Linux)](#running-lemon-as-a-systemd-service-linux)" for full details.
 
+5.  **Uninstall Systemd Service (Linux):**
+    To remove the `lemon` systemd service integration, use the `uninstall-systemd` command. This requires `sudo` privileges.
+    ```bash
+    sudo lemon uninstall-systemd
+    # Or, using the full path if needed:
+    # sudo $HOME/.cargo/bin/lemon uninstall-systemd
+    ```
+    This command will stop and disable the service, and remove its systemd unit file. It does not remove the `lemon` binary, user/group, or data/configuration directories. See the "[Running `lemon` as a Systemd Service (Linux)](#running-lemon-as-a-systemd-service-linux)" section for more details on what is and isn't removed.
+
 **Global Options:**
 
 *   **`--config <FILE>` (or `-c <FILE>`)**: Specifies the path to the configuration file to use instead of the default `lemon.toml`. This flag can be used with `run` and `validate`.
@@ -143,6 +152,36 @@ Once set up, you can manage the `lemon` service using standard `systemctl` comma
 *   **Restart Service:** `sudo systemctl restart lemon.service`
 *   **Enable on Boot:** `sudo systemctl enable lemon.service`
 *   **Disable on Boot:** `sudo systemctl disable lemon.service`
+
+**Uninstalling the Systemd Service:**
+
+To remove the `lemon` systemd service integration, you can use the `uninstall-systemd` command:
+
+```bash
+# If $HOME/.cargo/bin/lemon is accessible to sudo via its PATH:
+sudo lemon uninstall-systemd
+
+# More reliably, especially after a fresh 'cargo install':
+sudo $HOME/.cargo/bin/lemon uninstall-systemd
+```
+
+This command will perform the following actions:
+
+1.  **Stop the service:** `sudo systemctl stop lemon.service`
+2.  **Disable the service:** `sudo systemctl disable lemon.service` (prevents it from starting on boot).
+3.  **Remove the systemd unit file:** Deletes `/etc/systemd/system/lemon.service`.
+4.  **Reload systemd:** Runs `sudo systemctl daemon-reload`.
+
+**Important:** The `uninstall-systemd` command **does not** remove:
+
+*   The `lemon` binary itself (e.g., `/usr/local/bin/lemon`).
+*   The `lemon` system user and group.
+*   The configuration directory (`/etc/lemon/`) or your `lemon.toml` file.
+*   The working directory (`/opt/lemon/`) or any website files it might contain.
+*   The ACME cache directory (`/var/lib/lemon/acme-cache/`).
+*   The log directory (`/var/log/lemon/`).
+
+These items must be manually removed if you wish to completely purge all traces of `lemon` from the system after uninstalling the service.
 
 **Logging with Systemd:**
 
