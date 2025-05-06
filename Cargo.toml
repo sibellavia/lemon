@@ -1,6 +1,6 @@
 [package]
 name = "lemon-server"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 authors = ["sibellavia"]
 description = "A general-purpose web server with a clear, human-readable configuration."
