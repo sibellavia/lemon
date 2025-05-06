@@ -65,10 +65,91 @@ The compiled binary will be located at `./target/release/lemon`.
     ```
     The server will start based on the configuration found in `lemon.toml` (or the file specified with `--config`). Logs will be printed to standard output by default.
 
+4.  **Setup as a Systemd Service (Linux - Recommended for Servers):**
+    To run `lemon` persistently as a background service on Linux, use the `setup-systemd` command. This requires `sudo` privileges.
+    ```bash
+    sudo ./target/release/lemon setup-systemd
+    ```
+    This command automates the creation of a `lemon` system user, copies the binary, sets up necessary directories, installs a `systemd` unit file, and starts the service. See the dedicated section "[Running `lemon` as a Systemd Service (Linux)](#running-lemon-as-a-systemd-service-linux)" for full details.
+
 **Global Options:**
 
 *   **`--config <FILE>` (or `-c <FILE>`)**: Specifies the path to the configuration file to use instead of the default `lemon.toml`. This flag can be used with `run` and `validate`.
     *   Example: `./target/release/lemon --config /etc/lemon/prod.toml`
+
+### Running `lemon` as a Systemd Service (Linux)
+
+For running `lemon` persistently on a Linux server, integrating with `systemd` is the recommended approach. `lemon` provides a command to help automate this setup.
+
+**Prerequisites:**
+
+*   **`lemon` installed:** You should have the `lemon` binary installed. The common way is via `cargo`:
+    ```bash
+    cargo install lemon-server 
+    ```
+    This typically installs the binary to `$HOME/.cargo/bin/`.
+*   **Binary accessible in `PATH` (for convenience) or direct path usage:**
+    *   If `$HOME/.cargo/bin` is in your user's `PATH` (common if Rust was installed with `rustup`), you can proceed.
+    *   If not, or if `sudo` doesn't find `lemon` (see below), you'll need to use the full path to the binary.
+*   **`sudo` privileges:** Required to run the `setup-systemd` command for system-wide changes.
+
+**Setup Command:**
+
+Execute the following command with `sudo`. If `lemon` was just installed via `cargo install` and `$HOME/.cargo/bin` is not in `sudo`'s secure path, you'll need to provide the full path to the `lemon` binary (typically `$HOME/.cargo/bin/lemon`):
+
+```bash
+# If $HOME/.cargo/bin/lemon is accessible to sudo via its PATH (less common for sudo):
+sudo lemon setup-systemd
+
+# More reliably, especially after a fresh 'cargo install':
+sudo $HOME/.cargo/bin/lemon setup-systemd
+
+# Or, if you copied it to /usr/local/bin/ yourself first:
+# sudo /usr/local/bin/lemon setup-systemd
+```
+
+This command will perform the following actions:
+
+1.  **Create `lemon` User and Group:** A dedicated system user and group named `lemon` are created to run the server with minimal privileges.
+2.  **Copy Binary:** The `lemon` executable that runs the command is copied to `/usr/local/bin/lemon`.
+3.  **Set Capabilities:** The `CAP_NET_BIND_SERVICE` capability is set on `/usr/local/bin/lemon`, allowing it to bind to privileged ports (like 80 and 443) without running the entire process as root.
+4.  **Create Directories:**
+    *   `/opt/lemon`: Default working directory for the service.
+    *   `/etc/lemon/`: Default location for `lemon.toml` configuration file.
+    *   `/var/lib/lemon/acme-cache/`: Default directory for storing ACME (Let's Encrypt) certificates and state.
+    *   `/var/log/lemon/`: Directory for potential future file-based logging (though `journald` is primary with systemd).
+    All these directories will be owned by the `lemon` user/group.
+5.  **Install Systemd Unit File:** A `lemon.service` file is created and placed in `/etc/systemd/system/`. This file configures how `systemd` manages the `lemon` process.
+6.  **Enable and Start Service:**
+    *   `systemctl daemon-reload` is run to make `systemd` aware of the new service.
+    *   `systemctl enable lemon.service` is run to ensure `lemon` starts automatically on system boot.
+    *   `systemctl start lemon.service` is run to start `lemon` immediately.
+
+**Configuration:**
+
+After running `setup-systemd`, you **must** create or place your `lemon.toml` configuration file at:
+
+*   `/etc/lemon/lemon.toml`
+
+The `lemon` service will use this configuration file by default.
+
+**Managing the `lemon` Service:**
+
+Once set up, you can manage the `lemon` service using standard `systemctl` commands:
+
+*   **Check Status:** `sudo systemctl status lemon.service`
+*   **Start Service:** `sudo systemctl start lemon.service`
+*   **Stop Service:** `sudo systemctl stop lemon.service`
+*   **Restart Service:** `sudo systemctl restart lemon.service`
+*   **Enable on Boot:** `sudo systemctl enable lemon.service`
+*   **Disable on Boot:** `sudo systemctl disable lemon.service`
+
+**Logging with Systemd:**
+
+*   When `lemon` runs as a `systemd` service, its standard output (`stdout`) and standard error (`stderr`) are captured by the systemd journal.
+*   You can view these logs using: `journalctl -u lemon.service -f` (to follow live logs) or `journalctl -u lemon.service` (to see recent logs).
+*   **Recommendation:** For seamless integration with `journalctl`, it's recommended to use `lemon`'s default `stdout` logging output in your `/etc/lemon/lemon.toml` (i.e., either omit the `[logging.output]` section or set `output = { type = "stdout" }`).
+*   If you configure `lemon`'s `logging.output` to be of type `file` (e.g., `output = { type = "file", path = "/var/log/lemon/app.log" }`), `lemon`'s application logs will be written to that specified file directly and will **not** appear in the `journalctl` output for the service.
 
 ## Architecture
 
@@ -200,7 +281,10 @@ Defines how the server instance should process incoming requests.
         *   **Default:** `1048576` (1 MiB)
     *   `content_cache_max_total_bytes` (Optional): Maximum total size in bytes for the in-memory content cache across all cached files. Uses a weighted eviction strategy (larger files contribute more to the limit).
         *   **Default:** `268435456` (256 MiB)
-    *   **Validation:** `www_root` must not be empty. Directory should exist and be readable.
+    *   **Permissions when running as a service:** When `lemon` is managed by `systemd` (see "Running `lemon` as a Systemd Service" section), the server process runs as a dedicated `lemon` system user. This `lemon` user **must** have read access (and execute access for directories) to the path specified in `www_root` and all its contents.
+        *   You can use absolute paths for `www_root` (e.g., `/var/www/my_site/public` or `/opt/lemon/www/my_site_docs`).
+        *   If using a relative path, it will be relative to the service's `WorkingDirectory` (which defaults to `/opt/lemon` when set up by `lemon setup-systemd`).
+        *   Ensure you set appropriate ownership (e.g., `sudo chown -R lemon:lemon /path/to/your/www_root`) or permissions (e.g., `sudo chmod -R a+rX /path/to/your/www_root`) for the `lemon` user.
 
     ```toml
     [server.static_server]

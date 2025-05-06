@@ -304,6 +304,20 @@ pub async fn squeeze(cli_args: cli::Cli) -> Result<()> {
             );
             cli::create_default_config_cmd(config_path, force).await?;
         }
+        cli::Commands::SetupSystemd => {
+            // Ensure logging is set up before running the command, even if it's basic.
+            let _logging_guards = logging::setup_logging(None)?;
+            info!("Preparing to set up Lemon as a systemd service...");
+            cli::systemd_setup_cmd().await?;
+            info!("Systemd setup process finished.");
+        }
+        cli::Commands::UninstallSystemd => {
+            // Ensure logging is set up before running the command.
+            let _logging_guards = logging::setup_logging(None)?;
+            info!("Preparing to uninstall Lemon systemd service...");
+            cli::systemd_uninstall_cmd().await?;
+            info!("Systemd uninstall process finished.");
+        }
     }
     Ok(())
 }
