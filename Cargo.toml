@@ -1,5 +1,5 @@
 [package]
-name = "lemon"
+name = "lemon-server"
 version = "0.2.3"
 edition = "2024"
 authors = ["sibellavia"]
