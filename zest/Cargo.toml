@@ -1,0 +1,16 @@
+[package]
+name = "zest"
+version = "0.1.0"
+edition = "2021"
+authors = ["sibellavia"] 
+description = "High-performance TCP listening mechanism for Tokio-based applications"
+license = "MIT" 
+
+[dependencies]
+tokio = { version = "1.0", features = ["net", "sync", "rt", "macros", "time"] }
+socket2 = { version = "0.5", features = ["all"] }
+tracing = "0.1"
+anyhow = "1.0"
+num_cpus = "1.0" 
+futures = "0.3" 
+portpicker = "0.1.1"
