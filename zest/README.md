@@ -35,9 +35,16 @@ When you tell `ZestService` to `listen()`:
 
 ```rust
 // What you give to zest:
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZestProtocol {
+    Tcp,
+    // Quic, // Placeholder for future QUIC support
+}
+
 pub struct ZestListenerConfig {
     pub listen_address: SocketAddr,
     pub listener_id: u64, // So you know which of your configs this connection belongs to
+    pub protocol: ZestProtocol,
 }
 
 pub struct ZestGlobalSettings {
@@ -48,8 +55,15 @@ pub struct ZestGlobalSettings {
 
 // What zest gives you back:
 #[derive(Debug)]
-pub struct AcceptedTcpConnection {
-    pub stream: TcpStream,
+pub enum ZestTransportStream {
+    Tcp(TcpStream),
+    // Placeholder for future QUIC support
+    // Udp(tokio::net::UdpSocket), // Or a QUIC connection/stream type from a library
+}
+
+#[derive(Debug)]
+pub struct AcceptedConnection {
+    pub stream: ZestTransportStream,
     pub local_addr: SocketAddr,
     pub remote_addr: SocketAddr,
     pub listener_id: u64,
@@ -62,7 +76,7 @@ impl ZestService {
         listener_configs: Vec<ZestListenerConfig>,
         global_settings: ZestGlobalSettings,
         global_shutdown_rx: watch::Receiver<()>, 
-    ) -> anyhow::Result<mpsc::Receiver<AcceptedTcpConnection>> { /* ... */ }
+    ) -> anyhow::Result<mpsc::Receiver<AcceptedConnection>> { /* ... */ }
 }
 ```
 
@@ -81,13 +95,13 @@ the basic multi-threaded acceptor logic with `SO_REUSEPORT` and single-listener 
     *   Better error propagation from `create_tokio_listener` if it fails in some subtle way that isn't caught by the `oneshot` status channel immediately (even if current setup seems okay).
 *   **Configuration**: 
     *   Make MPSC channel buffer size configurable via `ZestGlobalSettings`?
-    *   TCP socket options for the listening socket (e.g., `SO_RCVBUF`, `SO_SNDBUF` via `socket2`)? Or is this overkill for just the listener?
+    *   TCP socket options for the listening socket (e.g., `SO_RCVBUF`, `SO_SNDBUF` via `socket2`)? Or is this overkill for just the listener? (Note: `tcp_listen_backlog` is already in `ZestGlobalSettings`).
     *   Should accepted sockets have `TCP_NODELAY` or `SO_KEEPALIVE` set by `zest`, or leave that entirely to the app that receives the `TcpStream`?
 *   **Performance**: 
     *   Benchmark this thing properly against a simple single-threaded Tokio acceptor
     *   Explore pinning acceptor OS threads to specific CPU cores (`core_affinity`)
 *   **Windows `SO_REUSEPORT` equivalent?**: I don't care about Windows honesly.
-*   **UDP Support**: the API was kinda designed with an eye towards maybe supporting UDP listeners in the future (e.g. for QUIC). That would mean `AcceptedItem` enum and different setup logic.
+*   **UDP Support**: the API has been updated to include `ZestProtocol` in `ZestListenerConfig` and `AcceptedConnection` now uses a `ZestTransportStream` enum. This lays some groundwork for potentially supporting UDP listeners (e.g. for QUIC) in the future, which would involve adding new variants and dedicated setup/accept logic.
 *   **Graceful Shutdown of Accept Loops**: the `watch::channel` for shutdown is passed in. Need to ensure all OS threads and their Tokio runtimes honor this promptly and cleanly, especially if `accept()` is somehow stuck (though `tokio::select!` should prevent that).
 *   **Documentation**: more comments in the code, and maybe expand this `README` with usage examples once it's integrated into `lemon`.
 *   **Collect and Join `thread_handles`?**: in `ZestService::listen`, we collect `thread_handles` but don't currently join them. For a library, it might be cleaner to let the OS clean them up when the main process exits, or if `lemon` needs to ensure `zest` threads are fully stopped *before* `lemon` itself exits, we might need a separate `ZestService::shutdown()` method that joins these handles.

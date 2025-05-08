@@ -5,18 +5,33 @@ use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot, watch};
 use anyhow::{Context, Result, bail};
 
+/// Specifies the protocol for a Zest listener.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZestProtocol {
+    Tcp,
+    // Quic, // Placeholder for future QUIC support
+}
+
 /// Configuration for a single listener that zest will manage.
 #[derive(Debug, Clone)]
 pub struct ZestListenerConfig {
     pub listen_address: SocketAddr,
     pub listener_id: u64, // Opaque ID for lemon to map back to its config
-    // pub protocol_type: ZestProtocol, // Future: TCP, UDP
+    pub protocol: ZestProtocol,
 }
 
-/// Represents an accepted TCP connection from zest.
+/// Represents the underlying transport stream.
 #[derive(Debug)]
-pub struct AcceptedTcpConnection {
-    pub stream: TcpStream,
+pub enum ZestTransportStream {
+    Tcp(TcpStream),
+    // Placeholder for future QUIC support
+    // Udp(tokio::net::UdpSocket), // Or a QUIC connection/stream type from a library
+}
+
+/// Represents an accepted connection from zest.
+#[derive(Debug)]
+pub struct AcceptedConnection {
+    pub stream: ZestTransportStream,
     pub local_addr: SocketAddr,
     pub remote_addr: SocketAddr,
     pub listener_id: u64,
@@ -39,7 +54,7 @@ impl ZestService {
         listener_configs: Vec<ZestListenerConfig>,
         global_settings: ZestGlobalSettings,
         global_shutdown_rx: watch::Receiver<()>, 
-    ) -> Result<mpsc::Receiver<AcceptedTcpConnection>> {
+    ) -> Result<mpsc::Receiver<AcceptedConnection>> {
         if listener_configs.is_empty() {
             bail!("No listener configurations were provided");
         }
@@ -112,6 +127,18 @@ impl ZestService {
                         
                         // this block_on will run the async logic on the current OS thread's new tokio runtime
                         runtime.block_on(async move { 
+                            if lc.protocol != ZestProtocol::Tcp {
+                                let err_msg = format!(
+                                    "Unsupported protocol {:?} for listener {} in thread {}",
+                                    lc.protocol,
+                                    lc.listener_id,
+                                    thread_name
+                                );
+                                tracing::error!(err_msg);
+                                let _ = status_tx.send(Err(anyhow::anyhow!(err_msg)));
+                                return;
+                            }
+
                             let listener_result = create_tokio_listener(&lc, &settings_clone, use_reuseport_for_current_config).await;
 
                             let listener = match listener_result {
@@ -145,8 +172,8 @@ impl ZestService {
                                         match accepted {
                                             Ok((stream, remote_addr)) => {
                                                 let local_addr = stream.local_addr().unwrap_or(lc.listen_address); 
-                                                let accepted_conn = AcceptedTcpConnection {
-                                                    stream,
+                                                let accepted_conn = AcceptedConnection {
+                                                    stream: ZestTransportStream::Tcp(stream),
                                                     local_addr,
                                                     remote_addr,
                                                     listener_id: lc.listener_id,
@@ -202,6 +229,10 @@ async fn create_tokio_listener(
     settings: &ZestGlobalSettings,
     use_reuseport_flag: bool,
 ) -> Result<TcpListener> {
+    if config.protocol != ZestProtocol::Tcp {
+        bail!("Internal error: create_tokio_listener called for non-TCP protocol {:?}", config.protocol);
+    }
+
     let addr = config.listen_address;
     let backlog = settings.tcp_listen_backlog.unwrap_or(1024) as i32; 
 
@@ -273,6 +304,7 @@ mod tests {
         ZestListenerConfig {
             listen_address: SocketAddr::from(([127, 0, 0, 1], port)),
             listener_id: id,
+            protocol: ZestProtocol::Tcp,
         }
     }
 
@@ -331,7 +363,11 @@ mod tests {
     
     #[tokio::test]
     async fn test_zest_service_fail_all_listener_setups(){
-        let configs = vec![test_listener_config(80, 1)]; 
+        let configs = vec![ZestListenerConfig {
+            listen_address: "127.0.0.1:80".parse().unwrap(), // Port 80 likely needs root
+            listener_id: 1,
+            protocol: ZestProtocol::Tcp,
+        }]; 
         let settings = ZestGlobalSettings { 
             force_single_listener_mode: false, 
             listener_threads_per_address: Some(1), 
